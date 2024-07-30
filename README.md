@@ -180,6 +180,7 @@ void loop() {
 2. ESP8266 and ESP32 have 3.3V TTL, but XY6020L have 5V levels, so don't connect pins directly. Instead, use level converter, https://learn.sparkfun.com/tutorials/retired---using-the-logic-level-converter
 3. ESP32 shields with MicroUSB and AMS1117 converter, may have not enough 5V power to start XY6020L's UART - you should use external 5V power source, or use shields with type-C.
 
+***
 
 Main author: Jens Gleissberg
 
