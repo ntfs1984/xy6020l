@@ -1,175 +1,156 @@
 # xy6020l Library
+Originally forked from https://github.com/Jens3382/xy6020l
 
-UART control access to XY6020L DCDC converter board.
+This library implementing XY6020L DC-DC converted board using Arduino or ESP8266\ESP32
+# Simple usage on Arduino, which is setting 5V on output
+```C
+#include "xy6020l.h"
 
-The library implements a simplified ModBus for the data link layer. With the provided functions it is easy to control the DCDC operation and use them as safe low voltage power supply for many applications. 
+// We are using softwareserial arduino's lib to use custom UART pins
+// On ESP you should comment next 2 lines
+#include <SoftwareSerial.h>
+SoftwareSerial Serial1 =  SoftwareSerial(12, 13);
+xy6020l xy(Serial1, 0);
+void setup() {
+ Serial.begin(115200);
+ Serial1.begin(115200); // On ESP you should comment this line
+ // Serial1.begin(115200, SERIAL_8N1, 12, 13); // On ESP you should uncomment this line
+ xy.setOutput(true); 
+}
 
-In combination with a small sized Arduino board, the XY6020L can be adapted to different applications, for example as a solar maximum power point tracker:
+void loop() {
+  xy.task();
+  if(xy.HRegUpdated()) {
+   xy.setCV(500);
+   int OutCC = xy.getActC();
+   int OutV = xy.getActV();
+   Serial.print("Out A: ");Serial.print(OutCC);
+   Serial.print("; Out V: ");Serial.print(OutV);
+   Serial.println();  
+  }
+}
+```
+## Description of code
+```SoftwareSerial Serial1 =  SoftwareSerial(12, 13);``` - set PINs 12 and 13 as RX and TX. Please keep in mind, works on Arduinos AVR
 
-![XY6020L Application](pics/dcdcmbus_open.jpg)
+```xy6020l xy(Serial1, 0);``` - Creating modbus instance on Serial1. Instead of Serial1 you can use and serial object, available on your board. Notice: on ESPs, Serial usually using as main UART.
 
-The library is tested with an  Arduino Pro Micro clone from China, but also other board shall work.
+```Serial1.begin(115200, SERIAL_8N1, 12, 13);``` - if you want use custom RX and TX on ESP, you should also mention parity and stop bits.
 
-![Arduino Pro Micro](pics/ArduinoProMicro.jpg)
+``` xy.task();``` - this command is builtin and must be used in loop, to control xy6020l's state and parameters. But you can experiment without it.
 
-These devices provides 2 independent UART drivers. One for USB serial programming and debugging and the other one for the TX/RX pins. Together with the 5 V supply from the XY6020L you need only 4 wire to control the DCDC converters operation.
+``` if(xy.HRegUpdated()) {``` - we can start work with xy6020l only when it's ready.
 
-![Connecting Arduino Pro Micro to XY6020L](pics/Connection_UART_ArduinoProMicro.jpg)
+``` xy.setCV(500);``` - set 5V voltage. Please remember, these value is using divider "100", so if we want set there 7.5V - we should use 750, if we want 13.5V - we should use 1350, and so on.
 
-Special thanks to users: 
- - **g-radmac** on allaboutcircuits forum for his discovery of the UART protocol! 
- - **RikBen68** for informing me about the existing manual from [tinkering4fun](https://github.com/tinkering4fun/XY6020L-Modbus/tree/main) and the valuable improvement tips.
- - **tinkering4fun** for creation of the [manual](https://github.com/tinkering4fun/XY6020L-Modbus/blob/main/doc/XY6020L-Modbus-Interface.pdf)
+```int OutCC = xy.getActC();``` - reading current A (amper) on output. If there are nothing connected to output, this value should be 0. There is also divider 100, so to understand real amperage in A, this value should be divided by 100.
 
-## General
+```int OutV = xy.getActV();``` - reading current V (volt) on output.
 
-- No blocking program flow
-- cached voltage and current set commands 
-- automatic update of internal register from XY6020L
+# Functions of library (assume we created instance named xy)
+```int V = xy.getInV();``` - reading voltage on input pins. Will be 0 if no power, 1950 when 19.5V and so on.
+ This value also will be shown if you will switch on xy6020l with hardware button.
 
-## References: 
-- [Translation from chinese manual from user tinkering4fun](https://github.com/tinkering4fun/XY6020L-Modbus/blob/main/doc/XY6020L-Modbus-Interface.pdf)
-- [@allaboutcircuits: Exploring programming a XY6020L power supply via modbus](https://forum.allaboutcircuits.com/threads/exploring-programming-a-xy6020l-power-supply-via-modbus.197022/)
-- [Simply Modbus FAQ](https://www.simplymodbus.ca/FAQ.htm)
+```int V = xy.getActV();``` - reading voltage on output pins. It reads actual voltage on pins. This means if you will setup xy6020l to 14V, connect 12V battery to output - value will be 1400 (like configured). But if you disconnect input voltage - value will 1200 (or so), because battery still stay connected and have own voltage.
 
-# Usage
+```int I = xy.getActC();``` - reading actual current on output. Should be 0 if nothing connected. You can determine power usage in Watts, if do ```int P =  xy.getActV()*xy.getActA();```
 
-## Data Access
+```int T = xy.getTemp();``` - reading actual xy6020l's temperature.
 
-The internal registers of the XY6020L are stored temporarily. Please use [this manual](https://github.com/tinkering4fun/XY6020L-Modbus/blob/main/doc/XY6020L-Modbus-Interface.pdf) as reference. 
+```xy.setOutput(bool);``` - activate or deactivate xy6020l output. It's equal to hardware switch.
 
-**Read access:**
+```bool W = xy.getOutputOn();``` - return true if xy6020l is switched on, or false if off.
 
-They are updated automatically on a cyclical basis or can be requested explicitly. 
+```xy.setPreset(int preset);``` - activating "preset" number. What is - we will see later.
 
-**Write access:**
+```int preset = xy.getPreset();``` - returning num of preset using at current time.
 
-If the registers are to be changed, set methods are available. For the registers to be updated frequently, as
- - constant voltage: setCV( word cv)
- - constant current: setCC( word cc)
- - output state: setOutput(bool onState)
- - output lock: setLockOn(bool onState)  
-  
-the write accesses are temporarily stored in a ring buffer so that no update is lost if the send buffer is still full.
+```xy.SetMemory(tMemory& mem);``` - saving preset in memory.
 
-**Data Type** 
+```xy.GetMemory(tMemory* pMem);``` - reading values of preset to pMem pointer.
 
-The data type is kept the same as transfered from XY6020L. There is almost a scaling of 100 from the physical value is used.  
+```xy.PrintMemory(tMemory& mem);``` - print memory values to serial console.
 
-For example:
-- a voltage of 10 V has a value of 1000 
-- a current of 4.23 A has a value of 423
+# What are presets and how to work with memory?
 
-## No Blocking Code
+XY6020L DC converter have some ready presets in memory. These presets are designed to set XY6020L working mode, to automate some popular behavior.
 
-The library does not use blocking code so that the programme flow is not stopped, thus enabling control loops. 
-As the XY6020L requires up to 100 ms for responses, the receipt of requested data must be queried via polling. 
+Let's imagine you want build power source, with protection when overcurrent. Usually you can implement these checks in code - reading actual CC, compare it to threshold, deactivate DC if overload, etc.
 
-The content of the registers is queried for all registers at once using the **ReadAllHRegs()** method. If **HRegUpdated()** returns true, the contents are available in the buffer (hRegs) and can be read using get methods.
+But these actions also could be done automatically by XY6020L engine, you should just set some values.
 
-**Automatic Update of Holding Registers**
+Now preset example with description:
 
-In addition to polling, all internal registers are automatically updated cyclically. This can be inhibited via the option switch **XY6020_OPT_NO_HREG_UPDATE** in the class constructor.
+```C
+    Mem.Nr = 2; // Number of preset
+    Mem.VSet = 1200; // Output voltage (12V)
+    Mem.ISet =  500; // Output max current (5A)
+    Mem.sLVP = 1000; // Low voltage threshold (10V)
+    Mem.sOVP = 1300; // High voltage threshold (13V)
+    Mem.sOCP =  620; // High current threshold (6.2A)
+    Mem.sOPP = 1040; // High power threshold (104 watts)
+    Mem.sOHPh= 0; // How many hours output will work
+    Mem.sOHPm= 0; // How many minutes output will work
+    Mem.sOAH = 0; 
+    Mem.sOWH = 0;
+    Mem.sOTP = 110; // High temperature threshold
+    Mem.sINI = 0;
+```
+This example means, so XY6020L will set 12V 5A output, which will be switched off if voltage will be lower than 10V, higher than 13V, current higher than 6.2A and temperature higher than 110c.
 
-# Highlighed Functions
+Code which activate this preset:
 
-## Task Caller
+```C
+#include "xy6020l.h"
 
-- void task(void);
+// We are using softwareserial arduino's lib to use custom UART pins
+// On ESP you should comment next 2 lines
+#include <SoftwareSerial.h>
+SoftwareSerial Serial1 =  SoftwareSerial(12, 13);
+xy6020l xy(Serial1, 0);
+void setup() {
+ Serial.begin(115200);
+ Serial1.begin(115200); // On ESP you should comment this line
+ // Serial1.begin(115200, SERIAL_8N1, 12, 13); // On ESP you should uncomment this line
+ xy.setPreset(2);
+ xy.setOutput(true); 
+}
 
-This function must be called cyclically in the loop() method. 
+void loop() {
+  xy.task();
+  if(xy.HRegUpdated()) {
+   xy.setPreset(2);
+   int OutCC = xy.getActC();
+   int OutV = xy.getActV();
+   Serial.print("Out A: ");Serial.print(OutCC);
+   Serial.print("; Out V: ");Serial.print(OutV);
+   Serial.println();  
+  }
+}
+```
+# Can I configure my own preset?
+Yes, you can
 
-It controls the receipt and sending of messages and the cyclical updating of the registers.
+```C
+#include "xy6020l.h"
 
-**Example:**
-
-    xy6020l xy(Serial1, 1);
-    :
-    void loop() 
-    {
-        xy.task();
-
-wait till new data arrived and has been decoded
-
-        if(xy.HRegUpdated())
-        {
-
-data access to internal buffer
-
-            vIn = xy.getInV();
-            :
-            // do some calculations...
-            :
-
-This places the update CV register in the ring buffer and xy.task() will transmit it as soon as the send buffer is empty
-
-            xy.setCV( vOut );
-        }
-    }
-
-## Model & Version Number
-
-The methods
-- word getModel(void)
-- word getVersion(void)
-provides the result from the model and version register.
-
-**Example for non-automatically update of Holding Registers:**
-
-    xy6020l xy(Serial1, 0x01, 50, XY6020_OPT_SKIP_SAME_HREG_VALUE | XY6020_OPT_NO_HREG_UPDATE);
-
-    void loop() {
-
-Request to read all holding register so that model and version registers are read too:
-
-        xy.ReadAllHRegs();
-
-Call the XY6020L class driver as long as the reply is received and decoded:
-
-        while(!xy.HRegUpdated())
-            xy.task();
-
-Write model and version numbers to the serial monitor of Arduino IDE
-
-        sprintf( tmpBuf, "\nM:%04X V:%04X\n", xy.getModel(), xy.getVersion() );
-        Serial.print(tmpBuf);
-    }
-
-
-**Output**
-
-    M:6100 V:0074
-
-
-## Preset Memory 
-
-The XY6020L supports up to 10 preset memories, which set the constant voltage and current settings as well as protection values.
-Changed presets only become active after a restart.
-
-The following function allow an easy access to the preset settings:
-- bool **setPreset**( word preset)
-- void **SetMemory**(tMemory& mem)
-- bool **GetMemory**(tMemory* pMem)
-- void **PrintMemory**(tMemory& mem)
-
-**Example of setting memory 2 as 12 V supply**
-
-    xy6020l xy(Serial1, 0x01, 50, XY6020_OPT_SKIP_SAME_HREG_VALUE | XY6020_OPT_NO_HREG_UPDATE);
-    :
-    void loop() {
-        xy.task();
-        :
-
-Set tMemory struct to 12 V output voltage and 5 A max current. At 10 V input supply, the XY6020L will switch off output.
-
-        // 12 V supply
-        Mem.Nr = 2;
-        Mem.VSet = 1200;
-        Mem.ISet =  500;
+// We are using softwareserial arduino's lib to use custom UART pins
+// On ESP you should comment next 2 lines
+#include <SoftwareSerial.h>
+SoftwareSerial Serial1 =  SoftwareSerial(12, 13);
+xy6020l xy(Serial1, 0);
+tMemory Mem;
+void setup() {
+ Serial.begin(115200);
+ Serial1.begin(115200); // On ESP you should comment this line
+ // Serial1.begin(115200, SERIAL_8N1, 12, 13); // On ESP you should uncomment this line
+        Mem.Nr = 0; // Keep in mind, we are saving preset with this number, and we must use this number in future
+        Mem.VSet =  410;
+        Mem.ISet =   50;
         Mem.sLVP = 1000;
-        Mem.sOVP = 1300;
-        Mem.sOCP =  620;
-        Mem.sOPP = 1040;
+        Mem.sOVP =  500;
+        Mem.sOCP =  100;
+        Mem.sOPP =   40;
         Mem.sOHPh= 0;
         Mem.sOHPm= 0;
         Mem.sOAH = 0;
@@ -178,61 +159,24 @@ Set tMemory struct to 12 V output voltage and 5 A max current. At 10 V input sup
         Mem.sINI = 0;
         xy.SetMemory(Mem);
         xy.PrintMemory(Mem);
-        :
-    }
+ xy.setPreset(0); // We used prevoulsly created preset 0
+ xy.setOutput(true); 
+}
 
-**Output:**
+void loop() {
+  xy.task();
+  if(xy.HRegUpdated()) {
+   xy.setPreset(0); // We used prevoulsly created preset 0
+   int OutCC = xy.getActC();
+   int OutV = xy.getActV();
+   Serial.print("Out A: ");Serial.print(OutCC);
+   Serial.print("; Out V: ");Serial.print(OutV);
+   Serial.println();  
+  }
+}
+```
 
-    List Memory Content:
-    Nr: 2 
-    V-SET = 1200 (Voltage setting)
-    I-SET = 500 (Current setting)
-    S-LVP = 1000 (Low voltage protection value)
-    S-OVP = 1300 (Overvoltage protection value)
-    S-OCP = 620 (Overcurrent protection value)
-    S-OPP = 1040 (Over power protection value)
-    S-OHP_H = 0 (Maximum output time - hours)
-    S-OHP_M = 0 (Maximum output time - minutes)
-    S-OAH = 0 (Maximum output charge Ah)
-    S-OWH = 0 (Maximum output energy Wh)
-    S-OTP = 110 (Over temperature protection)
-    S-INI = 0 (Power-on output switch)
 
-# Example Applications
-
-## Setup and read memory registers
-
-**xySetup.ino**
-
-- prints diagnosis via USB serial port
-- prints model and version number
-    
-- sets °C as temperature unit
-- writes 3 memory presets as example
-- prints settings of all 10 memory
-
-## Max Power Point tracker for solar driven electrolytic cell
-
-**dcdcmbus.ino**
-
-- Usage of XY6020L DCDC for simple max power point tracking of a solar module driving a electrolytic cell
-- Cells voltage start from ~3 V and current will rise up to ~3A at 4 V.
-- At ~19 V the 20V pannel has its maximum power.
-- Simple I-controler increases the cell voltage till the power consumption from the solar panel drives its voltage below 19 V.
-    
-Hardware:  Arduino Pro Micro Clone from China
-
-### Case Model for 3D printer
-
-The water proof case hold on its top side a 4 digit U/A display, which can be switch off/on via a switch at the left side.
-
-![XY6020L Application](pics/dcdcmbus.jpg)
-
-The models source is in folder Case3D as Fusion360 file as well as the top and button side of the case as STL file.
-
-![Fusion Model](pics/ViewFusion.jpg)
-
-## copyrights:
 
 Author: Jens Gleissberg
 Date: 2024
