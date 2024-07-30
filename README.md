@@ -182,6 +182,9 @@ void loop() {
 
 
 Main author: Jens Gleissberg
+
 This fork author: Vitaliy Blats
+
 Date: 2024
+
 License: GNU Lesser General Public License v3.0 or later
